@@ -1,0 +1,10 @@
+Backend/.env
+Backend/data/
+Backend/.venv/
+backend/.env
+backend/data/
+backend/.venv/
+.venv/
+__pycache__/
+**/__pycache__/
+*.py[cod]
