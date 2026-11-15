@@ -146,41 +146,21 @@ class SlabApiTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.temporary_directory = tempfile.TemporaryDirectory()
-        emails = []
         app = create_app(
             database_path=Path(cls.temporary_directory.name) / "structoria.sqlite3",
             slab_model_path=MODEL_PATH,
-            mailer=lambda _email, _name, token: emails.append(token),
         )
         app.config["TESTING"] = True
         cls.client = app.test_client()
-        cls.client.post(
-            "/api/auth/signup",
-            json={"name": "Slab Test Student", "email": "slab-test@example.com", "password": "safe-password"},
-        )
-        cls.client.post("/api/auth/verify", json={"token": emails[0]})
-        login = cls.client.post(
-            "/api/auth/login",
-            json={"email": "slab-test@example.com", "password": "safe-password"},
-        )
-        cls.auth_headers = {"Authorization": f'Bearer {login.get_json()["token"]}'}
 
     @classmethod
     def tearDownClass(cls):
         cls.temporary_directory.cleanup()
 
-    def test_slab_calculation_requires_authentication(self):
+    def test_slab_calculation_is_available_without_authentication(self):
         response = self.client.post(
             "/api/calculate/rc-slab",
             json={"slabType": "twoWay", "inputs": SAMPLE_CASES["twoWay"]},
-        )
-        self.assertEqual(response.status_code, 401)
-
-    def test_authenticated_slab_calculation_returns_report_contract(self):
-        response = self.client.post(
-            "/api/calculate/rc-slab",
-            json={"slabType": "twoWay", "inputs": SAMPLE_CASES["twoWay"]},
-            headers=self.auth_headers,
         )
         self.assertEqual(response.status_code, 200, response.get_json())
         result = response.get_json()
@@ -196,10 +176,19 @@ class SlabApiTests(unittest.TestCase):
         response = self.client.post(
             "/api/calculate/rc-slab",
             json={"slabType": "twoWay", "inputs": inputs},
-            headers=self.auth_headers,
         )
         self.assertEqual(response.status_code, 400)
         self.assertIn("aspect ratios", response.get_json()["error"])
+
+    def test_malformed_json_returns_a_json_client_error(self):
+        response = self.client.post(
+            "/api/calculate/rc-slab",
+            data="{",
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertTrue(response.is_json)
+        self.assertIn("JSON object", response.get_json()["error"])
 
     def test_health_reports_slab_calculator_readiness(self):
         response = self.client.get("/api/health")

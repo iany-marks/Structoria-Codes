@@ -88,9 +88,13 @@ class AuthenticationApiTests(unittest.TestCase):
         response = self.client.post("/api/auth/verify", json={"token": "not-a-token"})
         self.assertEqual(response.status_code, 400)
 
-    def test_column_engine_rejects_unauthenticated_requests(self):
-        response = self.client.post("/api/calculate/rc-column", json={"inputs": {}})
-        self.assertEqual(response.status_code, 401)
+    def test_column_engine_allows_guest_requests(self):
+        response = self.client.post(
+            "/api/calculate/rc-column",
+            json={"inputs": {"width": 400}},
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Missing design input", response.get_json()["error"])
 
     def test_backend_serves_the_site_and_frontend_assets(self):
         with self.client.get("/") as response:

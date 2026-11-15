@@ -26,23 +26,11 @@ class ColumnApiTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.temporary_directory = tempfile.TemporaryDirectory()
-        emails = []
         app = create_app(
             database_path=Path(cls.temporary_directory.name) / "structoria.sqlite3",
-            mailer=lambda email, name, token: emails.append(token),
         )
         app.config["TESTING"] = True
         cls.client = app.test_client()
-        cls.client.post(
-            "/api/auth/signup",
-            json={"name": "Test Student", "email": "column-test@example.com", "password": "safe-password"},
-        )
-        cls.client.post("/api/auth/verify", json={"token": emails[0]})
-        login = cls.client.post(
-            "/api/auth/login",
-            json={"email": "column-test@example.com", "password": "safe-password"},
-        )
-        cls.auth_headers = {"Authorization": f'Bearer {login.get_json()["token"]}'}
         cls.calculator_available = cls.client.get("/api/health").get_json()["columnCalculator"] == "ready"
 
     @classmethod
@@ -54,13 +42,22 @@ class ColumnApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.get_json()["status"], "ready")
 
+    def test_api_http_errors_are_returned_as_json(self):
+        responses = (
+            self.client.get("/api/does-not-exist"),
+            self.client.put("/api/calculate/rc-column"),
+        )
+        self.assertEqual([response.status_code for response in responses], [404, 405])
+        for response in responses:
+            self.assertTrue(response.is_json)
+            self.assertIsInstance(response.get_json()["error"], str)
+
     def test_column_calculation_matches_frontend_response_contract(self):
         if not self.calculator_available:
             self.skipTest("Column design model is not present.")
         response = self.client.post(
             "/api/calculate/rc-column",
             json={"inputs": SAMPLE_INPUTS},
-            headers=self.auth_headers,
         )
         self.assertEqual(response.status_code, 200, response.get_json())
         result = response.get_json()
@@ -81,7 +78,6 @@ class ColumnApiTests(unittest.TestCase):
         response = self.client.post(
             "/api/calculate/rc-column",
             json={"inputs": {"width": 400}},
-            headers=self.auth_headers,
         )
         self.assertEqual(response.status_code, 400)
         self.assertIn("Missing design input", response.get_json()["error"])

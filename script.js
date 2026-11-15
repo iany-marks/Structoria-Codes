@@ -372,7 +372,6 @@ const defaultUser = {
 };
 const sessionStorageKey = "structoria-session-token";
 let currentUser = { ...defaultUser };
-let pendingCoursePath = null;
 let authenticationInitialized = false;
 
 const civilEngineeringPathway = {
@@ -1462,7 +1461,7 @@ function renderDisciplinePage(path) {
       const card = document.createElement("button");
       card.type = "button";
       card.className = `learning-card course-${["blue", "green", "orange", "amber", "purple", "teal", "pink", "sky", "lime"][index % 9]}`;
-      card.dataset.path = JSON.stringify([...path, child.name]);
+      const childPath = [...path, child.name];
 
       const icon = document.createElement("span");
       icon.className = "learning-card-icon";
@@ -1489,7 +1488,7 @@ function renderDisciplinePage(path) {
       card.append(icon, title, description);
       if (caseIllustration) card.append(caseIllustration);
       card.append(action);
-      card.addEventListener("click", () => navigateCivilEngineering(JSON.parse(card.dataset.path)));
+      card.addEventListener("click", () => navigateCivilEngineering(childPath));
       disciplineGrid.append(card);
     });
   } else {
@@ -1511,13 +1510,6 @@ function renderDisciplinePage(path) {
 }
 
 function navigateCivilEngineering(path, addHistory = true) {
-  if (!currentUser.loggedIn) {
-    pendingCoursePath = path;
-    openAuthDialog("login");
-    setAuthStatus("Sign in with a verified email address to open courses.");
-    showToast("Please sign in before opening a course.");
-    return;
-  }
   if (addHistory) {
     const route = path.slice(1).map(encodeURIComponent).join("/");
     history.pushState({ civilEngineeringPath: path }, "", `#civil-engineering${route ? `/${route}` : ""}`);
@@ -1543,14 +1535,6 @@ function syncPageWithLocation() {
   const segments = location.hash.slice("#civil-engineering".length).replace(/^\//, "");
   const path = ["Civil Engineering", ...segments.split("/").filter(Boolean).map((part) => decodeURIComponent(part))];
   if (!authenticationInitialized) return;
-  if (!currentUser.loggedIn) {
-    pendingCoursePath = path;
-    showHomePage();
-    openAuthDialog("login");
-    setAuthStatus("Sign in with a verified email address to open courses.");
-    recordVisit();
-    return;
-  }
   renderDisciplinePage(path);
   recordVisit();
 }
@@ -1684,11 +1668,46 @@ async function apiRequest(path, options = {}) {
   if (token) headers.set("Authorization", `Bearer ${token}`);
 
   const response = await fetch(path, { ...options, headers });
-  const payload = response.status === 204 ? null : await response.json();
+  if (response.status === 204) {
+    if (path === "/api/visits") return null;
+    throw new Error(`API request ${path} returned HTTP 204 without its expected JSON response.`);
+  }
+
+  const responseText = await response.text();
+  let payload = null;
+  if (responseText.trim()) {
+    try {
+      payload = JSON.parse(responseText);
+    } catch (error) {
+      if (!(error instanceof SyntaxError)) throw error;
+      const contentType = response.headers.get("content-type") || "unknown content type";
+      const responseKind = contentType.toLowerCase().includes("json")
+        ? "invalid JSON"
+        : "non-JSON data";
+      throw new Error(
+        `API request ${path} returned ${responseKind} (${contentType}, HTTP ${response.status}). ` +
+        "Check that the backend is deployed and /api routes reach it.",
+      );
+    }
+  } else if (response.ok) {
+    throw new Error(`API request ${path} returned an empty response (HTTP ${response.status}).`);
+  }
+
   if (!response.ok) {
-    const error = new Error(payload?.error || "The server could not complete your request.");
-    error.code = payload?.code;
+    const message = payload && typeof payload === "object" && !Array.isArray(payload)
+      ? payload.error
+      : null;
+    const error = new Error(
+      typeof message === "string" && message
+        ? message
+        : `API request ${path} failed with HTTP ${response.status}.`,
+    );
+    error.code = payload && typeof payload === "object" ? payload.code : undefined;
     throw error;
+  }
+
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    throw new Error(`API request ${path} returned JSON in an unexpected format (HTTP ${response.status}).`);
   }
   return payload;
 }
@@ -1816,7 +1835,7 @@ function setAuthMode(mode) {
   authMode = mode;
   const isSignup = mode === "signup";
 
-  authTitle.textContent = isSignup ? "Create your account" : "Log in to continue";
+  authTitle.textContent = isSignup ? "Create your account" : "Log in to your account";
   authSubmit.textContent = isSignup ? "Create account" : "Log in";
 
   authFields.name.classList.toggle("hidden", !isSignup);
@@ -1921,11 +1940,6 @@ authForm.addEventListener("submit", async (event) => {
     syncProfileUi();
     closeAuthDialog();
     showToast("Welcome back! You're logged in.");
-    if (pendingCoursePath) {
-      const path = pendingCoursePath;
-      pendingCoursePath = null;
-      navigateCivilEngineering(path);
-    }
     recordVisit();
   } catch (error) {
     if (error.code === "email_not_verified") {
@@ -2022,16 +2036,6 @@ document.querySelectorAll(".nav-link").forEach((link) => {
 
 courseCards.forEach((card) => {
   card.addEventListener("click", () => {
-    if (!currentUser.loggedIn) {
-      if (card.dataset.course === "Civil Engineering") {
-        pendingCoursePath = ["Civil Engineering"];
-      }
-      openAuthDialog("login");
-      setAuthStatus("Sign in with a verified email address to open courses.");
-      showToast("Please sign in before opening a course.");
-      return;
-    }
-
     const slideIndex = heroSlides.findIndex((slide) => slide.title === card.dataset.course);
     if (slideIndex !== -1) setHeroSlide(slideIndex);
 

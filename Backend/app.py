@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from functools import wraps
 import hashlib
 import os
@@ -17,6 +17,7 @@ from urllib.parse import urlencode
 
 from flask import Flask, current_app, jsonify, request, send_from_directory
 from dotenv import load_dotenv
+from werkzeug.exceptions import HTTPException
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from column_design.calculator import calculate, load_model
@@ -53,6 +54,13 @@ def create_app(model_path=None, database_path=None, mailer=None, slab_model_path
         SESSION_HOURS=12,
         REMEMBERED_SESSION_DAYS=30,
     )
+
+    @app.errorhandler(HTTPException)
+    def handle_http_exception(error):
+        if request.path.startswith("/api/"):
+            return jsonify(error=error.description), error.code or 500
+        return error
+
     try:
         model = load_model(model_path)
         model_error = None
@@ -82,7 +90,7 @@ def create_app(model_path=None, database_path=None, mailer=None, slab_model_path
     def initialize_database():
         database = Path(app.config["DATABASE"])
         database.parent.mkdir(parents=True, exist_ok=True)
-        with sqlite3.connect(database) as connection:
+        with closing(sqlite3.connect(database)) as connection, connection:
             connection.executescript(
                 """
                 CREATE TABLE IF NOT EXISTS students (
@@ -404,7 +412,6 @@ def create_app(model_path=None, database_path=None, mailer=None, slab_model_path
         return "", 204
 
     @app.post("/api/calculate/rc-column")
-    @require_auth
     def calculate_rc_column():
         if model is None:
             return jsonify(
@@ -425,7 +432,6 @@ def create_app(model_path=None, database_path=None, mailer=None, slab_model_path
             return jsonify(error=str(error)), 400
 
     @app.post("/api/calculate/rc-slab")
-    @require_auth
     def calculate_rc_slab():
         if slab_model is None:
             return jsonify(

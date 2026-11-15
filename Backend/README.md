@@ -2,7 +2,7 @@
 
 The Flask service hosts the frontend and API on the same origin. It stores student accounts, email-verification tokens, sign-in sessions and site visits in a local SQLite database at `backend/data/structoria.sqlite3` by default. Override the database location with `STRUCTORIA_DATABASE`.
 
-The framework-free frontend sends column and slab designs to the authenticated Python API; the browser no longer downloads or runs a second copy of the calculation engine. The slab workflow uses the supplied workbook's coefficient-based moment analysis and presents its checks and bar schedule as a student-facing calculation record. Hero images are resized and compressed, and only the active hero image loads initially.
+The framework-free frontend sends column and slab designs to the Python API; sign-in is currently optional, and the browser no longer downloads or runs a second copy of the calculation engine. The slab workflow uses the supplied workbook's coefficient-based moment analysis and presents its checks and bar schedule as a student-facing calculation record. Hero images are resized and compressed, and only the active hero image loads initially.
 
 ## Run locally
 
@@ -15,7 +15,9 @@ python -m pip install -r requirements.txt
 python app.py
 ```
 
-Open `http://127.0.0.1:5000`. Do not open `index.html` directly from disk: authentication and visit tracking require the backend.
+Open `http://127.0.0.1:5000`. Do not open `index.html` directly from disk: design calculations require the backend. Students can browse courses and run calculations without an account; sign-in remains optional for account features.
+
+On Windows, run `Start-Column-Calculator.bat` from the project root to start the backend and open the correct URL. VS Code Live Server and opening `index.html` directly only serve static files; they do not implement the `/api` POST routes, so calculator requests will fail with HTTP 404 or 405.
 
 ## Configure verification email
 
@@ -41,6 +43,8 @@ The email flow currently sends account-verification messages only. The email-upd
 
 ## API
 
+API endpoints and `/api` HTTP errors return JSON. The frontend reports empty or non-JSON responses with the endpoint and HTTP status instead of exposing a JSON parser exception.
+
 - `POST /api/auth/signup` creates a pending student account and sends verification email.
 - `POST /api/auth/verify` verifies an email using the one-time token.
 - `POST /api/auth/resend-verification` sends another verification link.
@@ -48,8 +52,8 @@ The email flow currently sends account-verification messages only. The email-upd
 - `PATCH /api/auth/profile` updates a student's name, email preferences and password.
 - `POST /api/visits` records a page visit, optionally associated with a signed-in student.
 - `GET /api/health` reports service and column-calculator readiness.
-- `POST /api/calculate/rc-column` runs the existing column-design model for a signed-in student.
-- `POST /api/calculate/rc-slab` runs one of the three supported slab workbook cases for a signed-in student: one-way solid slab, two-way panel, or simply supported two-way panel.
+- `POST /api/calculate/rc-column` runs the existing column-design model without requiring sign-in.
+- `POST /api/calculate/rc-slab` runs one of the three supported slab workbook cases without requiring sign-in: one-way solid slab, two-way panel, or simply supported two-way panel.
 
 The calculator model is built from `assets/column-design-eurocode.xlsx` with `backend/BuildColumnDesignModel.ps1`. If that workbook/model is not present, the authentication service still starts, while the column endpoint returns HTTP 503 with the missing-model reason.
 
